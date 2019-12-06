@@ -1,0 +1,6 @@
+{
+    "files.associations": {
+        "typeinfo": "cpp",
+        "h2o.h": "c"
+    }
+}
