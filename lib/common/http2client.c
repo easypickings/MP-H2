@@ -75,6 +75,8 @@ struct st_h2o_http2client_conn_t {
         ssize_t (*read_frame)(struct st_h2o_http2client_conn_t *conn, const uint8_t *src, size_t len, const char **err_desc);
         h2o_buffer_t *headers_unparsed;
     } input;
+
+    download_path_t *path;
 };
 
 struct st_h2o_http2client_stream_t {
@@ -626,6 +628,16 @@ static int handle_push_promise_frame(struct st_h2o_http2client_conn_t *conn, h2o
     return H2O_HTTP2_ERROR_PROTOCOL;
 }
 
+void send_ping_frame(struct st_h2o_http2client_conn_t *conn)
+{
+    h2o_http2_ping_payload_t payload;
+    h2o_http2_encode_ping_frame(&conn->output.buf, 0, payload.data);
+
+    conn->path->ping_sent = h2o_gettimeofday(conn->path->ctx->loop);
+    // printf("ping sent at: %zus %zuus\n", conn->path->ping_sent.tv_sec, conn->path->ping_sent.tv_usec);
+    request_write(conn);
+}
+
 static int handle_ping_frame(struct st_h2o_http2client_conn_t *conn, h2o_http2_frame_t *frame, const char **err_desc)
 {
     h2o_http2_ping_payload_t payload;
@@ -637,6 +649,34 @@ static int handle_ping_frame(struct st_h2o_http2client_conn_t *conn, h2o_http2_f
     if ((frame->flags & H2O_HTTP2_FRAME_FLAG_ACK) == 0) {
         h2o_http2_encode_ping_frame(&conn->output.buf, 1, payload.data);
         request_write(conn);
+    } else {
+        download_path_t *path = conn->path;
+
+        /* estimate RTT */
+        path->ping_rcvd = h2o_gettimeofday(path->ctx->loop);
+        // printf("ping rcvd at: %zus %zuus\n", path->ping_rcvd.tv_sec, path->ping_rcvd.tv_usec);
+        double rtt = (path->ping_rcvd.tv_sec - path->ping_sent.tv_sec) +
+                     (path->ping_rcvd.tv_usec - path->ping_sent.tv_usec) / (double)1000000;
+        if (path->rtt != 0)
+            path->rtt = (4 * path->rtt + rtt) / 5;
+        else
+            path->rtt = rtt;
+
+        /* estimate bandwidth */
+        h2o_httpclient_t *client = (h2o_httpclient_t *)path->client;
+        double time = (path->ping_rcvd.tv_sec - client->timings.response_start_at.tv_sec) +
+                      (path->ping_rcvd.tv_usec - client->timings.response_start_at.tv_usec) / (double)1000000;
+        if (time > 0) {
+            double bandwidth = path->bytes_downloaded / (time * 1048576);
+            if (path->bandwidth != 0)
+                path->bandwidth = (4 * path->bandwidth + bandwidth) / 5;
+            else
+                path->bandwidth = bandwidth;
+        }
+        printf("RTT: %fs Bandwidth: %f\n", path->rtt, path->bandwidth);
+
+        // USE H2O_TIMER_T TO SET A INTERVAL?
+        send_ping_frame(conn);
     }
 
     return 0;
@@ -960,6 +1000,8 @@ static void on_connection_ready(struct st_h2o_http2client_stream_t *stream, stru
     }
 
     h2o_http2_window_init(&stream->output.window, conn->peer_settings.initial_window_size);
+
+    send_ping_frame(conn);
 
     /* send headers */
     h2o_hpack_flatten_request(&conn->output.buf, &conn->output.header_table, stream->stream_id, conn->peer_settings.max_frame_size,
@@ -1300,6 +1342,10 @@ void h2o_httpclient__h2_on_connect(h2o_httpclient_t *_client, h2o_socket_t *sock
     }
 
     setup_stream(stream);
+
+    download_path_t *path = (download_path_t *)_client->path;
+    path->conn = (void *)conn;
+    conn->path = path;
 
     if (!h2o_timer_is_linked(&conn->io_timeout))
         h2o_timer_link(conn->super.ctx->loop, conn->super.ctx->io_timeout, &conn->io_timeout);

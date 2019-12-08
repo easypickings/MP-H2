@@ -1,6 +1,14 @@
 {
     "files.associations": {
         "typeinfo": "cpp",
-        "h2o.h": "c"
+        "h2o.h": "c",
+        "httpclient.h": "c",
+        "*.tcc": "c",
+        "fstream": "c",
+        "iosfwd": "c",
+        "iostream": "c",
+        "istream": "c",
+        "ostream": "c",
+        "sstream": "c"
     }
 }

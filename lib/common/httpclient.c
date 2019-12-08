@@ -149,6 +149,10 @@ void h2o_httpclient_connect(h2o_httpclient_t **_client, h2o_mem_pool_t *pool, vo
             http2_conn = NULL;
     }
 
+    download_path_t *path = (download_path_t *)ctx->path;
+    path->client = (void *)client;
+    client->path = (void *)path;
+
     if (ctx->http2.ratio < 0) {
         /* mix mode */
 

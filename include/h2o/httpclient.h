@@ -87,6 +87,7 @@ typedef struct st_h2o_httpclient_ctx_t {
         int8_t counter; /* default is -1. then it'll be initialized by 50 / ratio */
     } http2;
 
+    void *path;
 } h2o_httpclient_ctx_t;
 
 typedef struct st_h2o_httpclient_timings_t {
@@ -156,6 +157,8 @@ struct st_h2o_httpclient_t {
         h2o_httpclient_head_cb on_head;
         h2o_httpclient_body_cb on_body;
     } _cb;
+
+    void *path;
 };
 
 /**
@@ -203,6 +206,25 @@ extern const size_t h2o_httpclient__h1_size;
 void h2o_httpclient__h2_on_connect(h2o_httpclient_t *client, h2o_socket_t *sock, h2o_url_t *origin);
 uint32_t h2o_httpclient__h2_get_max_concurrent_streams(h2o_httpclient__h2_conn_t *conn);
 extern const size_t h2o_httpclient__h2_size;
+
+typedef struct {
+    int start, end;
+    unsigned char valid : 1;
+} request_range_t;
+
+typedef struct {
+    double rtt;
+    double bandwidth;
+    int bytes_to_download;
+    int bytes_downloaded;
+    void *conn;
+    void *client;
+    h2o_httpclient_ctx_t *ctx;
+    char url[2048];
+    struct timeval ping_sent;
+    struct timeval ping_rcvd;
+    request_range_t range;
+} download_path_t;
 
 #ifdef __cplusplus
 }
