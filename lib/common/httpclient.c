@@ -150,7 +150,11 @@ void h2o_httpclient_connect(h2o_httpclient_t **_client, h2o_mem_pool_t *pool, vo
     }
 
     download_path_t *path = (download_path_t *)ctx->path;
-    path->client = (void *)client;
+    if (path->client == NULL) {
+        path->client = (void *)client;
+    } else {
+        path->second_client = (void *)client;
+    }
     client->path = (void *)path;
 
     if (ctx->http2.ratio < 0) {

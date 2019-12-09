@@ -138,6 +138,14 @@ static void stream_send_error(struct st_h2o_http2client_conn_t *conn, uint32_t s
     request_write(conn);
 }
 
+/* API for sending RST frame to cancel stream */
+void send_rst_frame(download_path_t *path)
+{
+    struct st_h2o_http2client_conn_t *conn = (void *)path->conn;
+    struct st_h2o_http2client_stream_t *stream = (void *)path->client;
+    stream_send_error(conn, stream->stream_id, H2O_HTTP2_ERROR_FLOW_CONTROL);
+}
+
 static void transition_state(struct st_h2o_http2client_stream_t *stream, enum enum_h2o_http2client_stream_state new_state)
 {
     switch (new_state) {
@@ -258,6 +266,12 @@ static void close_stream(struct st_h2o_http2client_stream_t *stream)
     h2o_buffer_dispose(&stream->input.body);
 
     free(stream);
+}
+
+void path_close_stream(download_path_t *path)
+{
+    struct st_h2o_http2client_stream_t *stream = (void *)path->client;
+    close_stream(stream);
 }
 
 static void call_callback_with_error(struct st_h2o_http2client_stream_t *stream, const char *errstr)
@@ -430,8 +444,20 @@ static int handle_data_frame(struct st_h2o_http2client_conn_t *conn, h2o_http2_f
 
     int is_final = (frame->flags & H2O_HTTP2_FRAME_FLAG_END_STREAM) != 0;
     if (stream->super._cb.on_body(&stream->super, is_final ? h2o_httpclient_error_is_eos : NULL) != 0) {
+        /* use this to adjust byte range and switch to new stream */
+        download_path_t *path = (download_path_t *)stream->super.path;
         stream_send_error(conn, frame->stream_id, H2O_HTTP2_ERROR_INTERNAL);
         close_stream(stream);
+        if (path->second_client != NULL) {
+            path->range.start = path->second_range.start;
+            path->range.end = path->second_range.end;
+            path->range.bytes_to_download = path->second_range.bytes_to_download;
+            path->range.bytes_downloaded = path->second_range.bytes_downloaded;
+            path->range.valid = path->second_range.valid;
+            path->client = path->second_client;
+        }
+        path->second_client = NULL;
+        --path->cnt_left;
         return 0;
     }
 
@@ -634,7 +660,6 @@ void send_ping_frame(struct st_h2o_http2client_conn_t *conn)
     h2o_http2_encode_ping_frame(&conn->output.buf, 0, payload.data);
 
     conn->path->ping_sent = h2o_gettimeofday(conn->path->ctx->loop);
-    // printf("ping sent at: %zus %zuus\n", conn->path->ping_sent.tv_sec, conn->path->ping_sent.tv_usec);
     request_write(conn);
 }
 
@@ -654,7 +679,6 @@ static int handle_ping_frame(struct st_h2o_http2client_conn_t *conn, h2o_http2_f
 
         /* estimate RTT */
         path->ping_rcvd = h2o_gettimeofday(path->ctx->loop);
-        // printf("ping rcvd at: %zus %zuus\n", path->ping_rcvd.tv_sec, path->ping_rcvd.tv_usec);
         double rtt = (path->ping_rcvd.tv_sec - path->ping_sent.tv_sec) +
                      (path->ping_rcvd.tv_usec - path->ping_sent.tv_usec) / (double)1000000;
         if (path->rtt != 0)
@@ -667,14 +691,12 @@ static int handle_ping_frame(struct st_h2o_http2client_conn_t *conn, h2o_http2_f
         double time = (path->ping_rcvd.tv_sec - client->timings.response_start_at.tv_sec) +
                       (path->ping_rcvd.tv_usec - client->timings.response_start_at.tv_usec) / (double)1000000;
         if (time > 0) {
-            double bandwidth = path->bytes_downloaded / (time * 1048576);
+            double bandwidth = path->range.bytes_downloaded / time;
             if (path->bandwidth != 0)
                 path->bandwidth = (4 * path->bandwidth + bandwidth) / 5;
             else
                 path->bandwidth = bandwidth;
         }
-        printf("RTT: %fs Bandwidth: %f\n", path->rtt, path->bandwidth);
-
         // USE H2O_TIMER_T TO SET A INTERVAL?
         send_ping_frame(conn);
     }

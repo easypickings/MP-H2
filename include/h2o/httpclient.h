@@ -77,7 +77,7 @@ typedef struct st_h2o_httpclient_ctx_t {
     uint64_t *websocket_timeout; /* NULL if upgrade to websocket is not allowed */
     uint64_t keepalive_timeout;  /* only used for http2 for now */
     size_t max_buffer_size;
-
+    void *path;
     struct {
         h2o_socket_latency_optimization_conditions_t latency_optimization;
         uint32_t max_concurrent_streams;
@@ -86,8 +86,6 @@ typedef struct st_h2o_httpclient_ctx_t {
         int8_t ratio;
         int8_t counter; /* default is -1. then it'll be initialized by 50 / ratio */
     } http2;
-
-    void *path;
 } h2o_httpclient_ctx_t;
 
 typedef struct st_h2o_httpclient_timings_t {
@@ -208,23 +206,33 @@ uint32_t h2o_httpclient__h2_get_max_concurrent_streams(h2o_httpclient__h2_conn_t
 extern const size_t h2o_httpclient__h2_size;
 
 typedef struct {
-    int start, end;
+    int start;
+    int end;
+    int bytes_to_download;
+    int bytes_downloaded;
     unsigned char valid : 1;
 } request_range_t;
 
 typedef struct {
+    int cnt_left;
     double rtt;
     double bandwidth;
-    int bytes_to_download;
-    int bytes_downloaded;
     void *conn;
     void *client;
+    void *second_client;
     h2o_httpclient_ctx_t *ctx;
+    h2o_httpclient_connection_pool_t *connpool;
+    h2o_mem_pool_t pool;
     char url[2048];
     struct timeval ping_sent;
     struct timeval ping_rcvd;
     request_range_t range;
+    request_range_t second_range;
 } download_path_t;
+
+/* API for sending RST frame to cancel stream */
+void send_rst_frame(download_path_t *path);
+void path_close_stream(download_path_t *path);
 
 #ifdef __cplusplus
 }
