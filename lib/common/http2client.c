@@ -697,7 +697,6 @@ static int handle_ping_frame(struct st_h2o_http2client_conn_t *conn, h2o_http2_f
             else
                 path->bandwidth = bandwidth;
         }
-        // USE H2O_TIMER_T TO SET A INTERVAL?
         send_ping_frame(conn);
     }
 

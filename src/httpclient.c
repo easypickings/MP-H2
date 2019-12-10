@@ -36,7 +36,12 @@ static const char *file;
 static int fd;
 static int file_size = -1;
 static double delta = 0.05;
-int new_once = 1;
+
+static struct timeval start_download;
+static struct timeval end_download;
+static int fd_dat[3];
+static char *path_dat[3] = {"plot/0.txt", "plot/1.txt", "plot/2.txt"};
+
 static download_path_t download_path[3] = {{
                                                1,    /* cnt_left */
                                                0,    /* rtt */
@@ -171,6 +176,17 @@ static int on_body(h2o_httpclient_t *client, const char *errstr)
     path->range.bytes_to_download -= size_to_write;
     h2o_buffer_consume(&(*client->buf), (*client->buf)->size);
 
+    struct timeval now = h2o_gettimeofday(client->ctx->loop);
+    double time_elapsed = (now.tv_sec - start_download.tv_sec) * 1000 + (now.tv_usec - start_download.tv_usec) / (double)1000;
+    for (int i = 0; i < 3; ++i) {
+        if (path == &download_path[i]) {
+            char entry[128];
+            sprintf(entry, "%f %f\n", time_elapsed, (path->range.start + path->range.bytes_downloaded) / (double)1024);
+            write(fd_dat[i], entry, strlen(entry));
+            break;
+        }
+    }
+
     if (path->range.bytes_to_download == 0) {
         printf("path %p stream %p downloaded %d bytes range=%d-%d\n", path, path->client, path->range.bytes_downloaded,
                path->range.start, path->range.end);
@@ -230,14 +246,6 @@ static int on_body(h2o_httpclient_t *client, const char *errstr)
         }
     }
 
-    if (errstr == h2o_httpclient_error_is_eos) {
-        if (--path->cnt_left != 0) {
-            /* next attempt */
-            h2o_mem_clear_pool(&path->pool);
-            start_request(client->ctx);
-        }
-    }
-
     return 0;
 }
 
@@ -265,7 +273,7 @@ h2o_httpclient_body_cb on_head(h2o_httpclient_t *client, const char *errstr, int
         return NULL;
     }
 
-    print_status_line(version, status, msg);
+    // print_status_line(version, status, msg);
 
     download_path_t *path = (download_path_t *)client->path;
 
@@ -273,7 +281,7 @@ h2o_httpclient_body_cb on_head(h2o_httpclient_t *client, const char *errstr, int
         const char *name = headers[i].orig_name;
         if (name == NULL)
             name = headers[i].name->base;
-        printf("%.*s: %.*s\n", (int)headers[i].name->len, name, (int)headers[i].value.len, headers[i].value.base);
+        // printf("%.*s: %.*s\n", (int)headers[i].name->len, name, (int)headers[i].value.len, headers[i].value.base);
         if (file_size < 0 && path == &download_path[0]) {
             if (strcmp(name, "content-length") == 0) {
                 file_size = atoi(headers[i].value.base);
@@ -300,8 +308,7 @@ h2o_httpclient_body_cb on_head(h2o_httpclient_t *client, const char *errstr, int
             }
         }
     }
-    printf("path %p stream %p\n", path, path->client);
-    printf("\n");
+    // printf("\n");
 
     if (errstr == h2o_httpclient_error_is_eos) {
         on_error(client->ctx, "no body");
@@ -441,8 +448,16 @@ int main(int argc, char **argv)
 
     fd = open(file, O_RDWR | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
     if (fd < 0) {
-        perror("");
+        perror(file);
         exit(-1);
+    }
+
+    for (int i = 0; i < 3; ++i) {
+        fd_dat[i] = open(path_dat[i], O_RDWR | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
+        if (fd_dat[i] < 0) {
+            perror(path_dat[i]);
+            exit(-1);
+        }
     }
 
     h2o_multithread_queue_t *queue;
@@ -494,12 +509,6 @@ int main(int argc, char **argv)
         download_path[i].second_range.valid = 0;
     }
 
-    // download_path[0].range.start = 0;
-    // download_path[0].range.end = 81919;
-    // download_path[0].range.valid = 1;
-    // download_path[0].range.bytes_downloaded = 0;
-    // download_path[0].range.bytes_to_download = 81920;
-
 /* setup context */
 #if H2O_USE_LIBUV
     ctx[0].loop = uv_loop_new();
@@ -513,7 +522,7 @@ int main(int argc, char **argv)
     ctx[2].loop = ctx[1].loop = ctx[0].loop;
 
     /* setup the first request */
-    struct timeval start_download = h2o_gettimeofday(ctx->loop);
+    start_download = h2o_gettimeofday(ctx->loop);
     start_request(&ctx[0]);
 
     while (download_path[0].cnt_left != 0 || download_path[1].cnt_left != 0 || download_path[2].cnt_left != 0) {
@@ -523,9 +532,14 @@ int main(int argc, char **argv)
         h2o_evloop_run(ctx[0].loop, INT32_MAX);
 #endif
     }
-    struct timeval end_download = h2o_gettimeofday(ctx->loop);
-    double time = (end_download.tv_sec - start_download.tv_sec) + (end_download.tv_usec - start_download.tv_usec) / (double)1000000;
-    printf("DOWNLOAD TAKES %fs.\n", time);
+    end_download = h2o_gettimeofday(ctx->loop);
+    double time =
+        (end_download.tv_sec - start_download.tv_sec) * 1000 + (end_download.tv_usec - start_download.tv_usec) / (double)1000;
+    printf("DOWNLOAD TAKES %fms.\n", time);
+
+    close(fd);
+    for (int i = 0; i < 3; ++i)
+        close(fd_dat[i]);
 
     return 0;
 }
