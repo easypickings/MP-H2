@@ -226,13 +226,10 @@ typedef struct {
     char url[2048];
     struct timeval ping_sent;
     struct timeval ping_rcvd;
+    int bytes_downloaded_ping_sent;
     request_range_t range;
     request_range_t second_range;
 } download_path_t;
-
-/* API for sending RST frame to cancel stream */
-void send_rst_frame(download_path_t *path);
-void path_close_stream(download_path_t *path);
 
 #ifdef __cplusplus
 }

@@ -658,7 +658,7 @@ void send_ping_frame(struct st_h2o_http2client_conn_t *conn)
 {
     h2o_http2_ping_payload_t payload;
     h2o_http2_encode_ping_frame(&conn->output.buf, 0, payload.data);
-
+    conn->path->bytes_downloaded_ping_sent = conn->path->range.bytes_downloaded;
     conn->path->ping_sent = h2o_gettimeofday(conn->path->ctx->loop);
     request_write(conn);
 }
@@ -687,16 +687,12 @@ static int handle_ping_frame(struct st_h2o_http2client_conn_t *conn, h2o_http2_f
             path->rtt = rtt;
 
         /* estimate bandwidth */
-        h2o_httpclient_t *client = (h2o_httpclient_t *)path->client;
-        double time = (path->ping_rcvd.tv_sec - client->timings.response_start_at.tv_sec) +
-                      (path->ping_rcvd.tv_usec - client->timings.response_start_at.tv_usec) / (double)1000000;
-        if (time > 0) {
-            double bandwidth = path->range.bytes_downloaded / time;
-            if (path->bandwidth != 0)
-                path->bandwidth = (4 * path->bandwidth + bandwidth) / 5;
-            else
-                path->bandwidth = bandwidth;
-        }
+        double bandwidth = (path->range.bytes_downloaded - path->bytes_downloaded_ping_sent) / rtt;
+        if (path->bandwidth != 0)
+            path->bandwidth = (4 * path->bandwidth + bandwidth) / 5;
+        else
+            path->bandwidth = bandwidth;
+
         send_ping_frame(conn);
     }
 
