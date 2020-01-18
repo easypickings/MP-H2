@@ -36,31 +36,31 @@
 
     Each path is set with 5ms delay and 10Mbps bandwidth.
 
-  ![static](h2o/plot/static.png)
+  ![static](plot/static.png)
 
   - Under varying bandwidth conditions:
 
     Bandwidth is set to vary from 5Mbps to 10Mbps. However, the download rate strangely seems to be unaffected.
 
-  ![varius](h2o/plot/varius.png)
+  ![varius](plot/varius.png)
 
   - With a high-bandwidth path and two low-bandwidth paths:
 
     The high-bandwidth path is set with 5ms delay and 10Mbps bandwidth, whereas the low-bandwidth paths are set with 5ms delay and 7Mbps bandwidth.
 
-  ![bandwidth](h2o/plot/bandwidth.png)
+  ![bandwidth](plot/bandwidth.png)
 
   - With a short-delay path and two long-delay paths:
 
     The short-delay path is set with 5ms delay and 10Mbps bandwidth, whereas the long-delay paths are set with 10ms delay and 10Mbps bandwidth.
 
-  ![delay](h2o/plot/delay.png)
+  ![delay](plot/delay.png)
 
 - Mahimahi
 
   Random traces are chosen to demonstrate the download progress:
 
-  ![mahimahi_1](h2o/plot/mahimahi_1.png)
-
-![mahimahi_2](h2o/plot/mahimahi_2.png)
+  ![mahimahi_1](plot/mahimahi_1.png)
+  
+  ![mahimahi_2](plot/mahimahi_2.png)
 
